@@ -93,7 +93,7 @@ var presets = map[string][]string{
 }
 
 func init() {
-	caddy.RegisterModule(realip{})
+	caddy.RegisterModule(module{})
 	httpcaddyfile.RegisterHandlerDirective("realip", parseCaddyfileHandler)
 }
 
