@@ -265,6 +265,7 @@ func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		}
 		
 		for nesting := d.Nesting(); d.NextBlock(nesting); {
+			
 			args := d.RemainingArgs()
 			
 			if len(args) > 0 {
@@ -272,55 +273,26 @@ func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return err
 				}
 			}
-/*
-	for d.Next() {
-		if m != nil {
-			return fmt.Errorf("cannot specify realip more than once")
-		}
-		m = &module{
-			Header:  "X-Forwarded-For",
-			MaxHops: 5,
-		}
-		if err := parse(m, c); err != nil {
-			return err
-		}
-	}
-	
-		args := c.RemainingArgs()
-	if len(args) > 0 {
-		if err := addIpRanges(m, c, args); err != nil {
-			return err
-		}
-	}
-	for c.NextBlock() {
-		var err error
-		switch c.Val() {
-		case "header":
-			m.Header, err = StringArg(c)
-		case "from":
-			err = addIpRanges(m, c, c.RemainingArgs())
-		case "strict":
-			m.Strict, err = BoolArg(c)
-		case "maxhops":
-			m.MaxHops, err = IntArg(c)
-		default:
-			return c.Errf("Unknown realip arg: %s", c.Val())
-		}
-		if err != nil {
-			return err
+			
+			var err error
+			subdir := d.Val()
+			
+			switch subdir {
+			case "header":
+				m.Header, err = StringArg(d)
+			case "from":
+				err = addIpRanges(m, d, d.RemainingArgs())
+			case "strict":
+				m.Strict, err = BoolArg(d)
+			case "maxhops":
+				m.MaxHops, err = IntArg(d)
+			default:
+				return d.Errf("Unknown realip arg: %s", d.Val())
+			}
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
-	
-	for d.Next() {
-		
-		if !d.AllArgs(&template) {
-			return d.ArgErr()
-		}
-		
-		
-		se.Template = template
-	}
-	return nil
-*/
 }
