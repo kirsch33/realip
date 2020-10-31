@@ -255,14 +255,17 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	
 	for d.Next() {
-		if m != nil {
+/*
+if m != nil {
 			return d.Err("cannot specify realip more than once")
 		}
+*/
 		m = &module{
 			Header:  "X-Forwarded-For",
 			MaxHops: 5,
 		}
-		
+
+	
 		for nesting := d.Nesting(); d.NextBlock(nesting); {
 			
 			args := d.RemainingArgs()
