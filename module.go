@@ -282,6 +282,24 @@ func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	
 	for d.Next() {
 		if m != nil {
+			return d.Err("cannot specify realip more than once")
+		}
+		m = &module{
+			Header:  "X-Forwarded-For",
+			MaxHops: 5,
+		}
+		
+		for nesting := d.Nesting(); d.NextBlock(nesting); {
+			args := d.RemainingArgs()
+			
+			if len(args) > 0 {
+				if err := addIpRanges(m, d, args); err != nil {
+					return err
+				}
+			}
+/*
+	for d.Next() {
+		if m != nil {
 			return fmt.Errorf("cannot specify realip more than once")
 		}
 		m = &module{
@@ -329,4 +347,5 @@ func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		se.Template = template
 	}
 	return nil
+*/
 }
