@@ -127,41 +127,19 @@ func Setup(c *caddy.Controller) error {
 }
 */
 func (m *module) Provision(ctx caddy.Context) error {
-	
+/*	
 	httpserver.GetConfig(c).AddMiddleware(func(next httpserver.Handler) httpserver.Handler {
 		m.next = next
 		return m
 	})
-	
+*/	
 	return nil
 }
 
-func parseCaddyfile(m *module, c *caddy.Controller) (err error) {
-	args := c.RemainingArgs()
-	if len(args) > 0 {
-		if err := addIpRanges(m, c, args); err != nil {
-			return err
-		}
-	}
-	for c.NextBlock() {
-		var err error
-		switch c.Val() {
-		case "header":
-			m.Header, err = StringArg(c)
-		case "from":
-			err = addIpRanges(m, c, c.RemainingArgs())
-		case "strict":
-			m.Strict, err = BoolArg(c)
-		case "maxhops":
-			m.MaxHops, err = IntArg(c)
-		default:
-			return c.Errf("Unknown realip arg: %s", c.Val())
-		}
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
+	var m module
+	err := m.UnmarshalCaddyfile(h.Dispenser)
+	return m, err
 }
 
 // Adds a list of CIDR IP Ranges to the From whitelist
@@ -314,6 +292,32 @@ func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			return err
 		}
 	}
+	
+		args := c.RemainingArgs()
+	if len(args) > 0 {
+		if err := addIpRanges(m, c, args); err != nil {
+			return err
+		}
+	}
+	for c.NextBlock() {
+		var err error
+		switch c.Val() {
+		case "header":
+			m.Header, err = StringArg(c)
+		case "from":
+			err = addIpRanges(m, c, c.RemainingArgs())
+		case "strict":
+			m.Strict, err = BoolArg(c)
+		case "maxhops":
+			m.MaxHops, err = IntArg(c)
+		default:
+			return c.Errf("Unknown realip arg: %s", c.Val())
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 	
 	for d.Next() {
 		
