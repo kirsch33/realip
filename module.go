@@ -210,47 +210,47 @@ func (m *module) validSource(addr string) bool {
 
 func (m *module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler caddyhttp.Handler) error {
 	host, port, err := net.SplitHostPort(req.RemoteAddr)
-	if err != nil || !handler.validSource(host) {
-		if handler.Strict {
+	if err != nil || !m.validSource(host) {
+		if m.Strict {
 			return 403, fmt.Errorf("Error reading remote addr: %s", req.RemoteAddr)
 		}
-		return handler.next.ServeHTTP(w, req) // Change nothing and let next deal with it.
+		return handler.ServeHTTP(w, req) // Change nothing and let next deal with it.
 	}
-	if !handler.validSource(host) {
-		if handler.Strict {
+	if !m.validSource(host) {
+		if m.Strict {
 			return 403, fmt.Errorf("Unrecognized proxy ip address: %s", host)
 		}
-		return handler.next.ServeHTTP(w, req)
+		return handler.ServeHTTP(w, req)
 	}
 
-	if hVal := req.Header.Get(handler.Header); hVal != "" {
+	if hVal := req.Header.Get(m.Header); hVal != "" {
 		//restore original host:port format
 		parts := strings.Split(hVal, ",")
 		for i, part := range parts {
 			parts[i] = strings.TrimSpace(part)
 		}
-		if handler.MaxHops != -1 && len(parts) > handler.MaxHops {
+		if m.MaxHops != -1 && len(parts) > m.MaxHops {
 			return 403, fmt.Errorf("Too many forward addresses")
 		}
 		ip := net.ParseIP(parts[len(parts)-1])
 		if ip == nil {
-			if handler.Strict {
+			if m.Strict {
 				return 403, fmt.Errorf("Unrecognized proxy ip address: %s", parts[len(parts)-1])
 			}
-			return handler.next.ServeHTTP(w, req)
+			return handler.ServeHTTP(w, req)
 		}
 		req.RemoteAddr = net.JoinHostPort(parts[len(parts)-1], port)
 		for i := len(parts) - 1; i >= 0; i-- {
 			req.RemoteAddr = net.JoinHostPort(parts[i], port)
-			if i > 0 && !handler.validSource(parts[i]) {
-				if handler.Strict {
+			if i > 0 && !m.validSource(parts[i]) {
+				if m.Strict {
 					return 403, fmt.Errorf("Unrecognized proxy ip address: %s", parts[i])
 				}
-				return handler.next.ServeHTTP(w, req)
+				return handler.ServeHTTP(w, req)
 			}
 		}
 	}
-	return handler.next.ServeHTTP(w, req)
+	return handler.ServeHTTP(w, req)
 }
 
 func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
