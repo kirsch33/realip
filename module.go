@@ -12,6 +12,19 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
+type module struct {
+	next   httpserver.Handler
+	From   []*net.IPNet
+	Header string
+
+	// MaxHops configures the maxiumum number of hops or IPs to be found in a forward header.
+	// It's purpose is to prevent abuse and/or DOS attacks from long forward-chains, since each one
+	// must be parsed and checked against a list of subnets.
+	// The default is 5, -1 to disable. If set to 0, any request with a forward header will be rejected
+	MaxHops int
+	Strict  bool
+}
+
 var presets = map[string][]string{
 	// from https://www.cloudflare.com/ips/
 	"cloudflare": {
@@ -90,7 +103,7 @@ func (module) CaddyModule() caddy.ModuleInfo {
 		},
 	}
 }
-
+/*
 func Setup(c *caddy.Controller) error {
 	var m *module
 	for c.Next() {
@@ -111,8 +124,13 @@ func Setup(c *caddy.Controller) error {
 	})
 	return nil
 }
-
+*/
 func (m *module) Provision(ctx caddy.Context) error {
+	
+	httpserver.GetConfig(c).AddMiddleware(func(next httpserver.Handler) httpserver.Handler {
+		m.next = next
+		return m
+	})
 	
 	return nil
 }
@@ -223,18 +241,7 @@ func NoArgs(c *caddy.Controller) error {
 	return nil
 }
 
-type module struct {
-	next   httpserver.Handler
-	From   []*net.IPNet
-	Header string
 
-	// MaxHops configures the maxiumum number of hops or IPs to be found in a forward header.
-	// It's purpose is to prevent abuse and/or DOS attacks from long forward-chains, since each one
-	// must be parsed and checked against a list of subnets.
-	// The default is 5, -1 to disable. If set to 0, any request with a forward header will be rejected
-	MaxHops int
-	Strict  bool
-}
 
 func (m *module) validSource(addr string) bool {
 	ip := net.ParseIP(addr)
@@ -292,4 +299,31 @@ func (m *module) ServeHTTP(w http.ResponseWriter, req *http.Request) (int, error
 		}
 	}
 	return m.next.ServeHTTP(w, req)
+}
+
+func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	
+	for d.Next() {
+		if m != nil {
+			return fmt.Errorf("cannot specify realip more than once")
+		}
+		m = &module{
+			Header:  "X-Forwarded-For",
+			MaxHops: 5,
+		}
+		if err := parse(m, c); err != nil {
+			return err
+		}
+	}
+	
+	for d.Next() {
+		
+		if !d.AllArgs(&template) {
+			return d.ArgErr()
+		}
+		
+		
+		se.Template = template
+	}
+	return nil
 }
