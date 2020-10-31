@@ -208,7 +208,7 @@ func (m *module) validSource(addr string) bool {
 	return false
 }
 
-func (m *module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler caddyhttp.Handler) error {
+func (m *module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler caddyhttp.Handler) (int, error) {
 	host, port, err := net.SplitHostPort(req.RemoteAddr)
 	if err != nil || !m.validSource(host) {
 		if m.Strict {
