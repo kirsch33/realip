@@ -93,6 +93,7 @@ var presets = map[string][]string{
 
 func init() {
 	caddy.RegisterModule(realip{})
+	httpcaddyfile.RegisterDirective("realip", parseCaddyfile)
 }
 
 func (module) CaddyModule() caddy.ModuleInfo {
@@ -135,7 +136,7 @@ func (m *module) Provision(ctx caddy.Context) error {
 	return nil
 }
 
-func parse(m *module, c *caddy.Controller) (err error) {
+func parseCaddyfile(m *module, c *caddy.Controller) (err error) {
 	args := c.RemainingArgs()
 	if len(args) > 0 {
 		if err := addIpRanges(m, c, args); err != nil {
@@ -240,8 +241,6 @@ func NoArgs(c *caddy.Controller) error {
 	}
 	return nil
 }
-
-
 
 func (m *module) validSource(addr string) bool {
 	ip := net.ParseIP(addr)
