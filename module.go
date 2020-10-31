@@ -105,35 +105,9 @@ func (module) CaddyModule() caddy.ModuleInfo {
 		},
 	}
 }
-/*
-func Setup(c *caddy.Controller) error {
-	var m *module
-	for c.Next() {
-		if m != nil {
-			return fmt.Errorf("cannot specify realip more than once")
-		}
-		m = &module{
-			Header:  "X-Forwarded-For",
-			MaxHops: 5,
-		}
-		if err := parse(m, c); err != nil {
-			return err
-		}
-	}
-	httpserver.GetConfig(c).AddMiddleware(func(next httpserver.Handler) httpserver.Handler {
-		m.next = next
-		return m
-	})
-	return nil
-}
-*/
+
 func (m *module) Provision(ctx caddy.Context) error {
-/*	
-	httpserver.GetConfig(c).AddMiddleware(func(next httpserver.Handler) httpserver.Handler {
-		m.next = next
-		return m
-	})
-*/	
+
 	return nil
 }
 
@@ -144,17 +118,17 @@ func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error)
 }
 
 // Adds a list of CIDR IP Ranges to the From whitelist
-func addIpRanges(m *module, c *caddy.Controller, ranges []string) error {
+func addIpRanges(m *module, d *caddyfile.Dispenser, ranges []string) error {
 	for _, v := range ranges {
 		if preset, ok := presets[v]; ok {
-			if err := addIpRanges(m, c, preset); err != nil {
+			if err := addIpRanges(m, d, preset); err != nil {
 				return err
 			}
 			continue
 		}
 		_, cidr, err := net.ParseCIDR(v)
 		if err != nil {
-			return c.Err(err.Error())
+			return d.Err(err.Error())
 		}
 		m.From = append(m.From, cidr)
 	}
@@ -216,7 +190,7 @@ func BoolArg(d *caddyfile.Dispenser) (bool, error) {
 
 func NoArgs(d *caddyfile.Dispenser) error {
 	if len(d.RemainingArgs()) != 0 {
-		return c.ArgErr()
+		return d.ArgErr()
 	}
 	return nil
 }
