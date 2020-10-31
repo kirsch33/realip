@@ -14,7 +14,7 @@ import (
 )
 
 type module struct {
-	next   httpserver.Handler
+	next   caddyhttp.Handler
 	From   []*net.IPNet
 	Header string
 
@@ -94,7 +94,7 @@ var presets = map[string][]string{
 
 func init() {
 	caddy.RegisterModule(realip{})
-	httpcaddyfile.RegisterDirective("realip", parseCaddyfile)
+	httpcaddyfile.RegisterHandlerDirective("realip", parseCaddyfileHandler)
 }
 
 func (module) CaddyModule() caddy.ModuleInfo {
@@ -111,7 +111,7 @@ func (m *module) Provision(ctx caddy.Context) error {
 	return nil
 }
 
-func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
+func parseCaddyfileHandler(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
 	var m module
 	err := m.UnmarshalCaddyfile(h.Dispenser)
 	return m, err
