@@ -166,26 +166,26 @@ func addIpRanges(m *module, c *caddy.Controller, ranges []string) error {
 //
 
 // IntArg check's there is only one arg, parses, and returns it
-func IntArg(c *caddy.Controller) (int, error) {
-	args := c.RemainingArgs()
+func IntArg(d *caddyfile.Dispenser) (int, error) {
+	args := d.RemainingArgs()
 	if len(args) != 1 {
-		return 0, c.ArgErr()
+		return 0, d.ArgErr()
 	}
 	return strconv.Atoi(args[0])
 }
 
 // Assert only one arg and return it
-func StringArg(c *caddy.Controller) (string, error) {
-	args := c.RemainingArgs()
+func StringArg(d *caddyfile.Dispenser) (string, error) {
+	args := d.RemainingArgs()
 	if len(args) != 1 {
-		return "", c.ArgErr()
+		return "", d.ArgErr()
 	}
 	return args[0], nil
 }
 
 // Assert only one arg is a valid cidr notation
-func CidrArg(c *caddy.Controller) (*net.IPNet, error) {
-	a, err := StringArg(c)
+func CidrArg(d *caddyfile.Dispenser) (*net.IPNet, error) {
+	a, err := StringArg(d)
 	if err != nil {
 		return nil, err
 	}
@@ -196,10 +196,10 @@ func CidrArg(c *caddy.Controller) (*net.IPNet, error) {
 	return cidr, nil
 }
 
-func BoolArg(c *caddy.Controller) (bool, error) {
-	args := c.RemainingArgs()
+func BoolArg(d *caddyfile.Dispenser) (bool, error) {
+	args := d.RemainingArgs()
 	if len(args) > 1 {
-		return false, c.ArgErr()
+		return false, d.ArgErr()
 	}
 	if len(args) == 0 {
 		return true, nil
@@ -210,12 +210,12 @@ func BoolArg(c *caddy.Controller) (bool, error) {
 	case "true":
 		return true, nil
 	default:
-		return false, c.Errf("Unexpected bool value: %s", args[0])
+		return false, d.Errf("Unexpected bool value: %s", args[0])
 	}
 }
 
-func NoArgs(c *caddy.Controller) error {
-	if len(c.RemainingArgs()) != 0 {
+func NoArgs(d *caddyfile.Dispenser) error {
+	if len(d.RemainingArgs()) != 0 {
 		return c.ArgErr()
 	}
 	return nil
