@@ -94,7 +94,7 @@ var presets = map[string][]string{
 
 func init() {
 	caddy.RegisterModule(realip{})
-	httpcaddyfile.RegisterHandlerDirective("realip", parseCaddyfileHandler)
+	httpcaddyfile.RegisterDirective("realip", parseCaddyfile)
 }
 
 func (module) CaddyModule() caddy.ModuleInfo {
@@ -111,7 +111,7 @@ func (m *module) Provision(ctx caddy.Context) error {
 	return nil
 }
 
-func parseCaddyfileHandler(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
+func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
 	var m module
 	err := m.UnmarshalCaddyfile(h.Dispenser)
 	return m, err
