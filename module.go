@@ -296,3 +296,10 @@ func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	}
 	return nil
 }
+
+var (
+	_ caddy.Provisioner           = (*module)(nil)
+	_ caddyhttp.MiddlewareHandler = (*module)(nil)
+	_ caddyfile.Unmarshaler       = (*module)(nil)
+)
+
