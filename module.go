@@ -14,7 +14,6 @@ import (
 )
 
 type module struct {
-//	next   caddyhttp.Handler
 	From   []*net.IPNet
 	Header string
 
