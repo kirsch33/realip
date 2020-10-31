@@ -1,4 +1,4 @@
-module realip
+module github.com/kirsch33/realip
 
 go 1.15
 
