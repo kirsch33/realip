@@ -80,7 +80,6 @@ func parseCaddyfileHandler(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler,
 	return m, err
 }
 
-// Adds a list of CIDR IP Ranges to the From whitelist
 func addIpRanges(m *module, d *caddyfile.Dispenser, ranges []string) error {
 	for _, v := range ranges {
 		if preset, ok := presets[v]; ok {
@@ -142,7 +141,7 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 		if m.Strict {
 			return fmt.Errorf("Error reading remote addr: %s", req.RemoteAddr)
 		}
-		return handler.ServeHTTP(w, req) // Change nothing and let next deal with it.
+		return handler.ServeHTTP(w, req) 
 	}
 	if !m.validSource(host) {
 		if m.Strict {
@@ -152,8 +151,6 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 	}
 
 	if hVal := req.Header.Get(m.Header); hVal != "" {
-		//fmt.Errorf("HEADER: %s", hVal)
-		//restore original host:port format
 		parts := strings.Split(hVal, ",")
 		for i, part := range parts {
 			parts[i] = strings.TrimSpace(part)
@@ -168,7 +165,7 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 			}
 			return handler.ServeHTTP(w, req)
 		}
-		req.RemoteAddr = net.JoinHostPort(parts[len(parts)-1], port)
+		req.RemoteAddr = net.JoinHcurostPort(parts[len(parts)-1], port)
 		for i := len(parts) - 1; i >= 0; i-- {
 			req.RemoteAddr = net.JoinHostPort(parts[i], port)
 			if i > 0 && !m.validSource(parts[i]) {
@@ -185,31 +182,10 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.NextArg()
 	
-	for d.NextBlock(0) {
-
-/*
-		if m != nil {
-			return d.Err("cannot specify realip more than once")
-		}
-	
-		m = &module{
-			Header:  "X-Forwarded-For",
-			MaxHops: 5,
-		}
-*/
-	/*	for nesting := d.Nesting(); d.NextBlock(nesting); {
-			
-			args := d.RemainingArgs()
-			
-			if len(args) > 0 {
-				if err := addIpRanges(m, d, args); err != nil {
-					return err
-				}
-			}
-	*/		
-			var err error
+	for d.NextBlock(0) {	
+		var err error
 		
-			switch d.Val() {
+		switch d.Val() {
 			case "header":
 				err = parseStringArg(d, &m.Header)
 			case "from":
@@ -223,12 +199,10 @@ func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			}
 			if err != nil {
 				return d.Errf("Error parsing %s: %s", d.Val(), err)
-			}
 		}
+	}
 	return nil
 }
-
-
 
 var (
 	_ caddy.Provisioner           = (*module)(nil)
