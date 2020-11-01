@@ -1,6 +1,6 @@
 # realip for Caddy v2
 
-This repo is a port of captncraig's "realip" module to Caddy v2. 90% of code seen in this repo is NOT mine. I am simply taking captncraigs work and trying to make it usable with Caddy v2. See original plugin below:
+This repo is a port of captncraig's "realip" module to Caddy v2. See original plugin below:
 
 https://github.com/captncraig/caddy-realip
 
