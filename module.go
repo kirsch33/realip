@@ -152,7 +152,7 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 	}
 
 	if hVal := req.Header.Get(m.Header); hVal != "" {
-		fmt.Printf("HEADER: %s", hVal)
+		fmt.Errorf("HEADER: %s", hVal)
 		//restore original host:port format
 		parts := strings.Split(hVal, ",")
 		for i, part := range parts {
