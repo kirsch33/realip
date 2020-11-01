@@ -112,8 +112,10 @@ func (m *module) Provision(ctx caddy.Context) error {
 
 func parseCaddyfileHandler(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
 	var m module
-
 	err := m.UnmarshalCaddyfile(h.Dispenser)
+	if err != nil {
+		return nil, err
+	}
 	return m, err
 }
 
@@ -135,11 +137,6 @@ func addIpRanges(m *module, d *caddyfile.Dispenser, ranges []string) error {
 	return nil
 }
 
-//
-// Helpers below here could potentially be methods on *caddy.Controller for convenience
-//
-
-// IntArg check's there is only one arg, parses, and returns it
 func IntArg(d *caddyfile.Dispenser) (int, error) {
 	args := d.RemainingArgs()
 	if len(args) != 1 {
@@ -148,51 +145,20 @@ func IntArg(d *caddyfile.Dispenser) (int, error) {
 	return strconv.Atoi(args[0])
 }
 
-// Assert only one arg and return it
-func StringArg(d *caddyfile.Dispenser) (string, error) {
-	args := d.RemainingArgs()
-	if len(args) != 1 {
-		return "", d.ArgErr()
-	}
-	return args[0], nil
-}
-
-// Assert only one arg is a valid cidr notation
-func CidrArg(d *caddyfile.Dispenser) (*net.IPNet, error) {
-	a, err := StringArg(d)
-	if err != nil {
-		return nil, err
-	}
-	_, cidr, err := net.ParseCIDR(a)
-	if err != nil {
-		return nil, err
-	}
-	return cidr, nil
-}
-
-func BoolArg(d *caddyfile.Dispenser) (bool, error) {
-	args := d.RemainingArgs()
-	if len(args) > 1 {
-		return false, d.ArgErr()
-	}
-	if len(args) == 0 {
-		return true, nil
-	}
-	switch args[0] {
-	case "false":
-		return false, nil
-	case "true":
-		return true, nil
-	default:
-		return false, d.Errf("Unexpected bool value: %s", args[0])
-	}
-}
-
-func NoArgs(d *caddyfile.Dispenser) error {
-	if len(d.RemainingArgs()) != 0 {
+func parseStringArg(d *caddyfile.Dispenser, out *string) error {
+	if !d.Args(out) {
 		return d.ArgErr()
 	}
 	return nil
+}
+
+func parseBoolArg(d *caddyfile.Dispenser, out *bool) error {
+	var strVal string
+	err := parseStringArg(d, &strVal)
+	if err == nil {
+		*out, err = strconv.ParseBool(strVal)
+	}
+	return err
 }
 
 func (m *module) validSource(addr string) bool {
