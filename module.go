@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"strconv"
 
 	"github.com/caddyserver/caddy/v2"
@@ -147,7 +148,7 @@ func parseIntArg(d *caddyfile.Dispenser, out *int) error {
 	var strVal string
 	err := parseStringArg(d, &strVal)
 	if err == nil {
-		*out, err = strconv.ParseInt(strVal)
+		*out, err = strconv.Atoi(strVal)
 	}
 	return err
 }
@@ -222,7 +223,7 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.NextArg()
 	
-	for d.Next(0) {
+	for d.NextBlock(0) {
 
 /*
 		if m != nil {
