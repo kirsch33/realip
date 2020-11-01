@@ -111,8 +111,50 @@ func (m *module) Provision(ctx caddy.Context) error {
 }
 
 func parseCaddyfileHandler(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
-	var m module
-	err := m.UnmarshalCaddyfile(h.Dispenser)
+	var m *module
+		
+	for h.Next() {
+/*
+		if m != nil {
+			return d.Err("cannot specify realip more than once")
+		}
+*/
+		m = &module{
+			Header:  "X-Forwarded-For",
+			MaxHops: 5,
+		}
+
+		for nesting := h.Nesting(); h.NextBlock(nesting); {
+			
+			args := h.RemainingArgs()
+			
+			if len(args) > 0 {
+				if err := addIpRanges(m, h, args); err != nil {
+					return err
+				}
+			}
+			
+			var err error
+			subdir := h.Val()
+			
+			switch subdir {
+			case "header":
+				m.Header, err = StringArg(h)
+			case "from":
+				err = addIpRanges(m, h, h.RemainingArgs())
+			case "strict":
+				m.Strict, err = BoolArg(h)
+			case "maxhops":
+				m.MaxHops, err = IntArg(h)
+			default:
+				return h.Errf("Unknown realip arg: %s", h.Val())
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
+//	err := m.UnmarshalCaddyfile(h.Dispenser)
 	return m, err
 }
 
@@ -251,15 +293,15 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 	}
 	return handler.ServeHTTP(w, req)
 }
-
+/*
 func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	
 	for d.Next() {
-/*
+
 if m != nil {
 			return d.Err("cannot specify realip more than once")
 		}
-*/
+
 		m = &module{
 			Header:  "X-Forwarded-For",
 			MaxHops: 5,
@@ -298,10 +340,10 @@ if m != nil {
 	}
 	return nil
 }
-
+*/
 var (
 	_ caddy.Provisioner           = (*module)(nil)
 	_ caddyhttp.MiddlewareHandler = (*module)(nil)
-	_ caddyfile.Unmarshaler       = (*module)(nil)
+//	_ caddyfile.Unmarshaler       = (*module)(nil)
 )
 
