@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"strconv"
 
 	"github.com/caddyserver/caddy/v2"
@@ -137,19 +136,20 @@ func addIpRanges(m *module, d *caddyfile.Dispenser, ranges []string) error {
 	return nil
 }
 
-func IntArg(d *caddyfile.Dispenser) (int, error) {
-	args := d.RemainingArgs()
-	if len(args) != 1 {
-		return 0, d.ArgErr()
-	}
-	return strconv.Atoi(args[0])
-}
-
 func parseStringArg(d *caddyfile.Dispenser, out *string) error {
 	if !d.Args(out) {
 		return d.ArgErr()
 	}
 	return nil
+}
+
+func parseIntArg(d *caddyfile.Dispenser, out *int) error {
+	var strVal string
+	err := parseStringArg(d, &strVal)
+	if err == nil {
+		*out, err = strconv.ParseInt(strVal)
+	}
+	return err
 }
 
 func parseBoolArg(d *caddyfile.Dispenser, out *bool) error {
@@ -220,20 +220,21 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 }
 
 func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	d.NextArg()
 	
-	for d.Next() {
+	for d.Next(0) {
 
 /*
 		if m != nil {
 			return d.Err("cannot specify realip more than once")
 		}
-*/
-		
+	
 		m = &module{
 			Header:  "X-Forwarded-For",
 			MaxHops: 5,
 		}
-		for nesting := d.Nesting(); d.NextBlock(nesting); {
+*/
+	/*	for nesting := d.Nesting(); d.NextBlock(nesting); {
 			
 			args := d.RemainingArgs()
 			
@@ -242,29 +243,29 @@ func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return err
 				}
 			}
-			
+	*/		
 			var err error
-			subdir := d.Val()
-			
-			switch subdir {
+		
+			switch d.Val() {
 			case "header":
-				m.Header, err = StringArg(d)
+				err = parseStringArg(d, &m.Header)
 			case "from":
 				err = addIpRanges(m, d, d.RemainingArgs())
 			case "strict":
-				m.Strict, err = BoolArg(d)
+				err = parseBoolArg(d, &m.Strict)
 			case "maxhops":
-				m.MaxHops, err = IntArg(d)
+				err = parseIntArg(d, &m.MaxHops)
 			default:
-				return d.Errf("Unknown realip arg: %s", d.Val())
+				return d.Errf("Unknown realip arg")
 			}
 			if err != nil {
-				return err
+				return d.Errf("Error parsing %s: %s", d.Val(), err)
 			}
 		}
-	}
 	return nil
 }
+
+
 
 var (
 	_ caddy.Provisioner           = (*module)(nil)
