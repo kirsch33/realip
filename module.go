@@ -66,11 +66,6 @@ func (module) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-func (m *module) Provision(ctx caddy.Context) error {
-
-	return nil
-}
-
 func parseCaddyfileHandler(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
 	var m module
 	err := m.UnmarshalCaddyfile(h.Dispenser)
@@ -165,7 +160,7 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 			}
 			return handler.ServeHTTP(w, req)
 		}
-		req.RemoteAddr = net.JoinHcurostPort(parts[len(parts)-1], port)
+		req.RemoteAddr = net.JoinHostPort(parts[len(parts)-1], port)
 		for i := len(parts) - 1; i >= 0; i-- {
 			req.RemoteAddr = net.JoinHostPort(parts[i], port)
 			if i > 0 && !m.validSource(parts[i]) {
@@ -205,7 +200,6 @@ func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 }
 
 var (
-	_ caddy.Provisioner           = (*module)(nil)
 	_ caddyhttp.MiddlewareHandler = (*module)(nil)
 	_ caddyfile.Unmarshaler       = (*module)(nil)
 )
