@@ -134,7 +134,8 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 	host, port, err := net.SplitHostPort(req.RemoteAddr)
 	if err != nil || !m.validSource(host) {
 		if m.Strict {
-			return fmt.Errorf("Error reading remote addr: %s", req.RemoteAddr)
+			return caddyhttp.Error(http.StatusForbidden, err)
+			//return fmt.Errorf("Error reading remote addr: %s", req.RemoteAddr)
 		}
 		return handler.ServeHTTP(w, req) 
 	}
