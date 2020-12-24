@@ -1,7 +1,6 @@
 package realip
 
 import (
-	"fmt"
 	"net"
 	"net/http"
 	"strings"
