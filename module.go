@@ -135,13 +135,12 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 	if err != nil || !m.validSource(host) {
 		if m.Strict {
 			return caddyhttp.Error(http.StatusForbidden, err)
-			//return fmt.Errorf("Error reading remote addr: %s", req.RemoteAddr)
 		}
 		return handler.ServeHTTP(w, req) 
 	}
 	if !m.validSource(host) {
 		if m.Strict {
-			return fmt.Errorf("Unrecognized proxy ip address: %s", host)
+			return caddyhttp.Error(http.StatusForbidden, err)
 		}
 		return handler.ServeHTTP(w, req)
 	}
@@ -152,12 +151,12 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 			parts[i] = strings.TrimSpace(part)
 		}
 		if m.MaxHops != -1 && len(parts) > m.MaxHops {
-			return fmt.Errorf("Too many forward addresses")
+			return caddyhttp.Error(http.StatusForbidden, err)
 		}
 		ip := net.ParseIP(parts[len(parts)-1])
 		if ip == nil {
 			if m.Strict {
-				return fmt.Errorf("Unrecognized proxy ip address: %s", parts[len(parts)-1])
+				return caddyhttp.Error(http.StatusForbidden, err)
 			}
 			return handler.ServeHTTP(w, req)
 		}
@@ -166,7 +165,7 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 			req.RemoteAddr = net.JoinHostPort(parts[i], port)
 			if i > 0 && !m.validSource(parts[i]) {
 				if m.Strict {
-					return fmt.Errorf("Unrecognized proxy ip address: %s", parts[i])
+					return caddyhttp.Error(http.StatusForbidden, err)
 				}
 				return handler.ServeHTTP(w, req)
 			}
