@@ -3,8 +3,8 @@ package realip
 import (
 	"net"
 	"net/http"
-	"strings"
 	"strconv"
+	"strings"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -136,7 +136,7 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 		if m.Strict {
 			return caddyhttp.Error(http.StatusForbidden, err)
 		}
-		return handler.ServeHTTP(w, req) 
+		return handler.ServeHTTP(w, req)
 	}
 	if !m.validSource(host) {
 		if m.Strict {
@@ -176,24 +176,24 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 
 func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.NextArg()
-	
-	for d.NextBlock(0) {	
+
+	for d.NextBlock(0) {
 		var err error
-		
+
 		switch d.Val() {
-			case "header":
-				err = parseStringArg(d, &m.Header)
-			case "from":
-				err = addIpRanges(m, d, d.RemainingArgs())
-			case "strict":
-				err = parseBoolArg(d, &m.Strict)
-			case "maxhops":
-				err = parseIntArg(d, &m.MaxHops)
-			default:
-				return d.Errf("Unknown realip arg")
-			}
-			if err != nil {
-				return d.Errf("Error parsing %s: %s", d.Val(), err)
+		case "header":
+			err = parseStringArg(d, &m.Header)
+		case "from":
+			err = addIpRanges(m, d, d.RemainingArgs())
+		case "strict":
+			err = parseBoolArg(d, &m.Strict)
+		case "maxhops":
+			err = parseIntArg(d, &m.MaxHops)
+		default:
+			return d.Errf("Unknown realip arg")
+		}
+		if err != nil {
+			return d.Errf("Error parsing %s: %s", d.Val(), err)
 		}
 	}
 	return nil
@@ -203,4 +203,3 @@ var (
 	_ caddyhttp.MiddlewareHandler = (*module)(nil)
 	_ caddyfile.Unmarshaler       = (*module)(nil)
 )
-
