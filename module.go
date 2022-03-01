@@ -14,28 +14,28 @@ import (
 	"go.uber.org/zap"
 )
 
-type module struct {
+type RealIP struct {
 
 	// Presets stores the presets that should be loaded
-	Presets []string
+	Presets []string `json:"presets"`
 
 	// From stores any manually included presets
-	From []*net.IPNet
+	From []*net.IPNet `json:"from"`
 
 	// Header to load an IP Address from typically X-Forwarded-For
-	Header string
+	Header string `json:"header"`
 
 	// MaxHops configures the maxiumum number of hops or IPs to be found in a forward header.
 	// It's purpose is to prevent abuse and/or DOS attacks from long forward-chains, since each one
 	// must be parsed and checked against a list of subnets.
 	// The default is 5, -1 to disable. If set to 0, any request with a forward header will be rejected
-	MaxHops int
+	MaxHops int `json:"max_hops"`
 
 	// Will reject the request if a valid IP address can not be found
-	Strict bool
+	Strict bool `json:"strict"`
 
 	// How often the dynamic presets are reloaded
-	RefreshFrequency caddy.Duration
+	RefreshFrequency caddy.Duration `json:"refresh_frequency"`
 
 	done     chan bool
 	logger   *zap.Logger
@@ -50,24 +50,28 @@ type CIDRSet struct {
 }
 
 func init() {
-	caddy.RegisterModule(module{})
+	caddy.RegisterModule(RealIP{})
 	httpcaddyfile.RegisterHandlerDirective("realip", parseCaddyfileHandler)
 }
 
-func (module) CaddyModule() caddy.ModuleInfo {
+func (RealIP) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID: "http.handlers.realip",
 		New: func() caddy.Module {
-			return new(module)
+			return new(RealIP)
 		},
 	}
 }
 
-func (m *module) Provision(ctx caddy.Context) error {
+func (m *RealIP) Provision(ctx caddy.Context) error {
 	m.logger = ctx.Logger(m)
 
 	if m.RefreshFrequency == 0 {
 		m.RefreshFrequency = caddy.Duration(24 * time.Hour)
+	}
+
+	if m.MaxHops == 0 {
+		m.MaxHops = 5
 	}
 
 	m.done = make(chan bool, 1)
@@ -95,7 +99,7 @@ func (m *module) Provision(ctx caddy.Context) error {
 	return m.buildCompleteSet(false)
 }
 
-func (m *module) Cleanup() error {
+func (m *RealIP) Cleanup() error {
 
 	// stop all background tasks
 	if m.done != nil {
@@ -105,7 +109,7 @@ func (m *module) Cleanup() error {
 	return nil
 }
 
-func (m *module) buildCompleteSet(updateDynamicPresets bool) error {
+func (m *RealIP) buildCompleteSet(updateDynamicPresets bool) error {
 
 	if updateDynamicPresets {
 		// refresh presets
@@ -139,7 +143,7 @@ func (m *module) buildCompleteSet(updateDynamicPresets bool) error {
 }
 
 func parseCaddyfileHandler(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
-	var m module
+	var m RealIP
 	err := m.UnmarshalCaddyfile(h.Dispenser)
 	if err != nil {
 		return nil, err
@@ -147,7 +151,7 @@ func parseCaddyfileHandler(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler,
 	return m, err
 }
 
-func addIpRanges(m *module, d *caddyfile.Dispenser, ranges []string) error {
+func addIpRanges(m *RealIP, d *caddyfile.Dispenser, ranges []string) error {
 	for _, v := range ranges {
 		if _, ok := presetRegistry[v]; ok {
 			m.Presets = append(m.Presets, v)
@@ -187,7 +191,7 @@ func parseBoolArg(d *caddyfile.Dispenser, out *bool) error {
 	return err
 }
 
-func (m *module) validSource(addr string) bool {
+func (m *RealIP) validSource(addr string) bool {
 	ip := net.ParseIP(addr)
 	if ip == nil {
 		return false
@@ -200,7 +204,15 @@ func (m *module) validSource(addr string) bool {
 	return false
 }
 
-func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler caddyhttp.Handler) error {
+func (m RealIP) ServeHTTP(w http.ResponseWriter, req *http.Request, handler caddyhttp.Handler) error {
+
+	m.logger.Info("checking the header",
+		zap.String("header", m.Header),
+		zap.String("remoteaddr", req.RemoteAddr),
+		zap.Int("maxhops", m.MaxHops),
+	)
+
+	// check the direct upstream server
 	host, port, err := net.SplitHostPort(req.RemoteAddr)
 	if err != nil || !m.validSource(host) {
 		if m.Strict {
@@ -215,15 +227,18 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 		return handler.ServeHTTP(w, req)
 	}
 
+	// check the forwarded for header
 	if hVal := req.Header.Get(m.Header); hVal != "" {
 		parts := strings.Split(hVal, ",")
 		for i, part := range parts {
 			parts[i] = strings.TrimSpace(part)
 		}
+
 		if m.MaxHops != -1 && len(parts) > m.MaxHops {
 			return caddyhttp.Error(http.StatusForbidden, err)
 		}
 		ip := net.ParseIP(parts[len(parts)-1])
+
 		if ip == nil {
 			if m.Strict {
 				return caddyhttp.Error(http.StatusForbidden, err)
@@ -231,12 +246,14 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 			return handler.ServeHTTP(w, req)
 		}
 		req.RemoteAddr = net.JoinHostPort(parts[len(parts)-1], port)
+
 		for i := len(parts) - 1; i >= 0; i-- {
 			req.RemoteAddr = net.JoinHostPort(parts[i], port)
 			if i > 0 && !m.validSource(parts[i]) {
 				if m.Strict {
 					return caddyhttp.Error(http.StatusForbidden, err)
 				}
+
 				return handler.ServeHTTP(w, req)
 			}
 		}
@@ -244,7 +261,7 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 	return handler.ServeHTTP(w, req)
 }
 
-func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+func (m *RealIP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.NextArg()
 
 	for d.NextBlock(0) {
@@ -278,8 +295,8 @@ func MustParseCIDR(cidr string) *net.IPNet {
 }
 
 var (
-	_ caddyhttp.MiddlewareHandler = (*module)(nil)
-	_ caddy.Provisioner           = (*module)(nil)
-	_ caddyfile.Unmarshaler       = (*module)(nil)
-	_ caddy.CleanerUpper          = (*module)(nil)
+	_ caddyhttp.MiddlewareHandler = (*RealIP)(nil)
+	_ caddy.Provisioner           = (*RealIP)(nil)
+	_ caddyfile.Unmarshaler       = (*RealIP)(nil)
+	_ caddy.CleanerUpper          = (*RealIP)(nil)
 )
