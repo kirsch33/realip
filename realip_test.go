@@ -11,6 +11,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	"go.uber.org/zap"
 )
 
 func TestRealIP(t *testing.T) {
@@ -50,6 +51,11 @@ func TestRealIP(t *testing.T) {
 			Header:  "X-Real-IP",
 			MaxHops: 5,
 			From:    []*net.IPNet{ipnet},
+			logger:  zap.NewExample(),
+		}
+		err = he.buildCompleteSet(false)
+		if err != nil {
+			t.Fatal(err)
 		}
 
 		req, err := http.NewRequest("GET", "http://foo.tld/", nil)
@@ -89,20 +95,21 @@ func TestCidrAndPresets(t *testing.T) {
 		}`, test.rule)
 
 		d := caddyfile.NewTestDispenser(input)
-		m := &module{}
+		m := &module{
+			logger: zap.NewExample(),
+		}
 
 		err := m.UnmarshalCaddyfile(d)
 		if err != nil {
 			t.Fatalf("Test %d: failed while parsing: '%s'; got '%v'", i, test.rule, err)
 		}
+
+		m.buildCompleteSet(false)
+
 		var cidrs []*net.IPNet
 		for _, name := range test.presets {
-			if preset, ok := presets[name]; ok {
-				result, err := parseCidrs(i, preset)
-				if err != nil {
-					t.Fatal(err)
-				}
-				cidrs = append(cidrs, result...)
+			if preset, ok := presetRegistry[name]; ok {
+				cidrs = append(cidrs, preset.Ranges...)
 			} else {
 				t.Fatalf("Test %d: Specified preset missing: %s", i, name)
 			}
@@ -111,10 +118,11 @@ func TestCidrAndPresets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		cidrs = append(cidrs, result...)
 		for _, cidr := range cidrs {
 			found := false
-			for _, from := range m.From {
+			for _, from := range m.complete {
 				if net.IP.Equal(from.IP, cidr.IP) && bytes.Equal(from.Mask, cidr.Mask) {
 					found = true
 					break

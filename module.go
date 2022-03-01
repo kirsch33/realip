@@ -5,15 +5,24 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	"go.uber.org/zap"
 )
 
 type module struct {
-	From   []*net.IPNet
+
+	// Presets stores the presets that should be loaded
+	Presets []string
+
+	// From stores any manually included presets
+	From []*net.IPNet
+
+	// Header to load an IP Address from typically X-Forwarded-For
 	Header string
 
 	// MaxHops configures the maxiumum number of hops or IPs to be found in a forward header.
@@ -21,35 +30,23 @@ type module struct {
 	// must be parsed and checked against a list of subnets.
 	// The default is 5, -1 to disable. If set to 0, any request with a forward header will be rejected
 	MaxHops int
-	Strict  bool
+
+	// Will reject the request if a valid IP address can not be found
+	Strict bool
+
+	// How often the dynamic presets are reloaded
+	RefreshFrequency caddy.Duration
+
+	done     chan bool
+	logger   *zap.Logger
+	complete []*net.IPNet
 }
 
-var presets = map[string][]string{
-	// from https://www.cloudflare.com/ips/
-	"cloudflare": {
-		"103.21.244.0/22",
-		"103.22.200.0/22",
-		"103.31.4.0/22",
-		"104.16.0.0/13",
-		"104.24.0.0/14",
-		"108.162.192.0/18",
-		"131.0.72.0/22",
-		"141.101.64.0/18",
-		"162.158.0.0/15",
-		"172.64.0.0/13",
-		"173.245.48.0/20",
-		"188.114.96.0/20",
-		"190.93.240.0/20",
-		"197.234.240.0/22",
-		"198.41.128.0/17",
-		"2400:cb00::/32",
-		"2606:4700::/32",
-		"2803:f800::/32",
-		"2405:b500::/32",
-		"2405:8100::/32",
-		"2a06:98c0::/29",
-		"2c0f:f248::/32",
-	},
+type CIDRUpdater func() ([]*net.IPNet, error)
+
+type CIDRSet struct {
+	Ranges []*net.IPNet
+	Update CIDRUpdater
 }
 
 func init() {
@@ -66,6 +63,81 @@ func (module) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
+func (m *module) Provision(ctx caddy.Context) error {
+	m.logger = ctx.Logger(m)
+
+	if m.RefreshFrequency == 0 {
+		m.RefreshFrequency = caddy.Duration(24 * time.Hour)
+	}
+
+	m.done = make(chan bool, 1)
+
+	go func() {
+		ticker := time.NewTicker(time.Duration(m.RefreshFrequency))
+		defer ticker.Stop()
+
+		m.buildCompleteSet(true)
+
+		for {
+			select {
+			case <-ticker.C:
+				err := m.buildCompleteSet(true)
+				if err != nil {
+					m.logger.Error("downloading database failed", zap.Error(err))
+				}
+			case <-m.done:
+				m.logger.Info("downloading stopped")
+				return
+			}
+		}
+	}()
+
+	return m.buildCompleteSet(false)
+}
+
+func (m *module) Cleanup() error {
+
+	// stop all background tasks
+	if m.done != nil {
+		close(m.done)
+	}
+
+	return nil
+}
+
+func (m *module) buildCompleteSet(updateDynamicPresets bool) error {
+
+	if updateDynamicPresets {
+		// refresh presets
+		for name, p := range presetRegistry {
+			if p.Update != nil {
+				m.logger.Info("refreshing dynamic preset", zap.String("name", name))
+				newRanges, err := p.Update()
+
+				if err != nil {
+					m.logger.Error("failed to update dynamic preset", zap.String("name", name), zap.Error(err))
+				} else {
+					p.Ranges = newRanges
+					m.logger.Info("updated ranges", zap.String("name", name), zap.Int("count", len(newRanges)))
+				}
+			}
+		}
+	}
+
+	set := make([]*net.IPNet, 0)
+
+	// append any manual entries
+	set = append(set, m.From...)
+
+	// append current preset ranges
+	for _, p := range m.Presets {
+		set = append(set, presetRegistry[p].Ranges...)
+	}
+
+	m.complete = set
+	return nil
+}
+
 func parseCaddyfileHandler(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
 	var m module
 	err := m.UnmarshalCaddyfile(h.Dispenser)
@@ -77,10 +149,8 @@ func parseCaddyfileHandler(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler,
 
 func addIpRanges(m *module, d *caddyfile.Dispenser, ranges []string) error {
 	for _, v := range ranges {
-		if preset, ok := presets[v]; ok {
-			if err := addIpRanges(m, d, preset); err != nil {
-				return err
-			}
+		if _, ok := presetRegistry[v]; ok {
+			m.Presets = append(m.Presets, v)
 			continue
 		}
 		_, cidr, err := net.ParseCIDR(v)
@@ -122,7 +192,7 @@ func (m *module) validSource(addr string) bool {
 	if ip == nil {
 		return false
 	}
-	for _, from := range m.From {
+	for _, from := range m.complete {
 		if from.Contains(ip) {
 			return true
 		}
@@ -199,7 +269,17 @@ func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
+func MustParseCIDR(cidr string) *net.IPNet {
+	_, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		panic(err)
+	}
+	return ipnet
+}
+
 var (
 	_ caddyhttp.MiddlewareHandler = (*module)(nil)
+	_ caddy.Provisioner           = (*module)(nil)
 	_ caddyfile.Unmarshaler       = (*module)(nil)
+	_ caddy.CleanerUpper          = (*module)(nil)
 )
