@@ -1,16 +1,15 @@
 package realip
 
 import (
+	"bytes"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"bytes"
 	"fmt"
-	"github.com/caddyserver/caddy/v2"
+
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
-	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
@@ -42,11 +41,12 @@ func TestRealIP(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		next := caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+			remoteAddr = r.RemoteAddr
+			return nil
+		})
+
 		he := &module{
-			next: httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
-				remoteAddr = r.RemoteAddr
-				return 0, nil
-			}),
 			Header:  "X-Real-IP",
 			MaxHops: 5,
 			From:    []*net.IPNet{ipnet},
@@ -62,7 +62,7 @@ func TestRealIP(t *testing.T) {
 		}
 
 		rec := httptest.NewRecorder()
-		he.ServeHTTP(rec, req)
+		he.ServeHTTP(rec, req, next)
 
 		if remoteAddr != test.expectedIP {
 			t.Errorf("Test %d: Expected '%s', but found '%s'", i, test.expectedIP, remoteAddr)
@@ -77,20 +77,21 @@ func TestCidrAndPresets(t *testing.T) {
 		expected []string
 	}{
 		{"cloudflare", []string{"cloudflare"}, nil},
-		{"gcp", []string{"gcp"}, nil},
-		{"rackspace", []string{"rackspace"}, nil},
-		{"cloudflare rackspace gcp", []string{"cloudflare", "gcp", "rackspace"}, nil},
-		{"cloudflare { from 1.2.3.4/32\n}", []string{"cloudflare"}, []string{"1.2.3.4/32"}},
-		{"{ from gcp 1.2.3.4/32\n}", []string{"gcp"}, []string{"1.2.3.4/32"}},
-		{"{ from gcp rackspace\n}", []string{"gcp", "rackspace"}, nil},
-		{"{ from gcp\n from rackspace\n}", []string{"gcp", "rackspace"}, nil},
-		{"{ from rackspace\n from 1.2.3.4/32\n}", []string{"rackspace"}, []string{"1.2.3.4/32"}},
-		{"{ from 1.2.3.4/32 5.6.7.8/32\n}", nil, []string{"1.2.3.4/32", "5.6.7.8/32"}},
+		{"1.2.3.4/32 5.6.7.8/32", nil, []string{"1.2.3.4/32", "5.6.7.8/32"}},
+		{"1.2.3.4/32 \n from 5.6.7.8/32", nil, []string{"1.2.3.4/32", "5.6.7.8/32"}}, // run over multiple lines
 	}
 	for i, test := range tests {
-		c := caddy.NewTestController("http", test.rule)
+
+		input := fmt.Sprintf(`realip {
+			header "X-Forwarded-For"
+			from %s
+			maxhops 5
+		}`, test.rule)
+
+		d := caddyfile.NewTestDispenser(input)
 		m := &module{}
-		err := parse(m, c)
+
+		err := m.UnmarshalCaddyfile(d)
 		if err != nil {
 			t.Fatalf("Test %d: failed while parsing: '%s'; got '%v'", i, test.rule, err)
 		}
@@ -114,7 +115,7 @@ func TestCidrAndPresets(t *testing.T) {
 		for _, cidr := range cidrs {
 			found := false
 			for _, from := range m.From {
-				if bytes.Compare(from.IP, cidr.IP) == 0 && bytes.Compare(from.Mask, cidr.Mask) == 0 {
+				if net.IP.Equal(from.IP, cidr.IP) && bytes.Equal(from.Mask, cidr.Mask) {
 					found = true
 					break
 				}
