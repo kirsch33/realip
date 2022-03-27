@@ -14,6 +14,10 @@ import (
 	"go.uber.org/zap"
 )
 
+var (
+	realPool = caddy.NewUsagePool()
+)
+
 type RealIP struct {
 
 	// Presets stores the presets that should be loaded
@@ -37,9 +41,16 @@ type RealIP struct {
 	// How often the dynamic presets are reloaded
 	RefreshFrequency caddy.Duration `json:"refresh_frequency"`
 
-	done     chan bool
-	logger   *zap.Logger
+	// manages a global list of trusted IP ranges
+	state *state
+
+	// manages the complete ip set for this instance of real ip
 	complete []*net.IPNet
+
+	// is closed when this instance of real ip is unloaded via caddy cleanup
+	done chan bool
+
+	logger *zap.Logger
 }
 
 type CIDRUpdater func() ([]*net.IPNet, error)
@@ -65,6 +76,7 @@ func (RealIP) CaddyModule() caddy.ModuleInfo {
 
 func (m *RealIP) Provision(ctx caddy.Context) error {
 	m.logger = ctx.Logger(m)
+	m.done = make(chan bool, 1)
 
 	if m.RefreshFrequency == 0 {
 		m.RefreshFrequency = caddy.Duration(24 * time.Hour)
@@ -74,59 +86,52 @@ func (m *RealIP) Provision(ctx caddy.Context) error {
 		m.MaxHops = 5
 	}
 
-	m.done = make(chan bool, 1)
+	tmp, _, err := realPool.LoadOrNew("realip.state", func() (caddy.Destructor, error) {
+		state := state{}
+		state.Start(time.Duration(m.RefreshFrequency), m.logger)
+		return &state, nil
+	})
+	if err != nil {
+		m.logger.Error("unable to load previous state", zap.Error(err))
+		return err
+	}
 
+	if state, ok := tmp.(*state); ok {
+		m.state = state
+	}
+
+	// monitor for changes the presets or if this instance of the plugin has been closed
 	go func() {
-		ticker := time.NewTicker(time.Duration(m.RefreshFrequency))
-		defer ticker.Stop()
 
-		m.buildCompleteSet(true)
+		gs := m.state
 
 		for {
 			select {
-			case <-ticker.C:
-				err := m.buildCompleteSet(true)
-				if err != nil {
-					m.logger.Error("downloading database failed", zap.Error(err))
-				}
 			case <-m.done:
-				m.logger.Info("downloading stopped")
+				m.logger.Debug("cidr refresh monitor closing")
 				return
+
+			case _, ok := <-gs.Refreshed:
+				if !ok {
+					// this only happens if state object is being removed
+					return
+				}
+				m.buildCompleteSet()
 			}
 		}
 	}()
 
-	return m.buildCompleteSet(false)
+	return m.buildCompleteSet()
 }
 
 func (m *RealIP) Cleanup() error {
-
-	// stop all background tasks
 	if m.done != nil {
 		close(m.done)
 	}
-
 	return nil
 }
 
-func (m *RealIP) buildCompleteSet(updateDynamicPresets bool) error {
-
-	if updateDynamicPresets {
-		// refresh presets
-		for name, p := range presetRegistry {
-			if p.Update != nil {
-				m.logger.Info("refreshing dynamic preset", zap.String("name", name))
-				newRanges, err := p.Update()
-
-				if err != nil {
-					m.logger.Error("failed to update dynamic preset", zap.String("name", name), zap.Error(err))
-				} else {
-					p.Ranges = newRanges
-					m.logger.Info("updated ranges", zap.String("name", name), zap.Int("count", len(newRanges)))
-				}
-			}
-		}
-	}
+func (m *RealIP) buildCompleteSet() error {
 
 	set := make([]*net.IPNet, 0)
 
@@ -139,6 +144,9 @@ func (m *RealIP) buildCompleteSet(updateDynamicPresets bool) error {
 	}
 
 	m.complete = set
+
+	m.logger.Debug("ip set rebuilt")
+
 	return nil
 }
 
@@ -297,6 +305,6 @@ func MustParseCIDR(cidr string) *net.IPNet {
 var (
 	_ caddyhttp.MiddlewareHandler = (*RealIP)(nil)
 	_ caddy.Provisioner           = (*RealIP)(nil)
-	_ caddyfile.Unmarshaler       = (*RealIP)(nil)
 	_ caddy.CleanerUpper          = (*RealIP)(nil)
+	_ caddyfile.Unmarshaler       = (*RealIP)(nil)
 )

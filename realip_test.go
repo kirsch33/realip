@@ -56,7 +56,7 @@ func TestRealIP(t *testing.T) {
 			From:    []*net.IPNet{ipnet},
 			logger:  zap.NewExample(),
 		}
-		err = he.buildCompleteSet(false)
+		err = he.buildCompleteSet()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -107,7 +107,7 @@ func TestCidrAndPresets(t *testing.T) {
 			t.Fatalf("Test %d: failed while parsing: '%s'; got '%v'", i, test.rule, err)
 		}
 
-		m.buildCompleteSet(false)
+		m.buildCompleteSet()
 
 		var cidrs []*net.IPNet
 		for _, name := range test.presets {
