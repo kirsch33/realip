@@ -2,15 +2,19 @@ package realip
 
 import (
 	"bytes"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"fmt"
 
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/caddyserver/caddy/v2/caddytest"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	"go.uber.org/zap"
 )
 
 func TestRealIP(t *testing.T) {
@@ -46,10 +50,15 @@ func TestRealIP(t *testing.T) {
 			return nil
 		})
 
-		he := &module{
+		he := &RealIP{
 			Header:  "X-Real-IP",
 			MaxHops: 5,
 			From:    []*net.IPNet{ipnet},
+			logger:  zap.NewExample(),
+		}
+		err = he.buildCompleteSet()
+		if err != nil {
+			t.Fatal(err)
 		}
 
 		req, err := http.NewRequest("GET", "http://foo.tld/", nil)
@@ -89,20 +98,21 @@ func TestCidrAndPresets(t *testing.T) {
 		}`, test.rule)
 
 		d := caddyfile.NewTestDispenser(input)
-		m := &module{}
+		m := &RealIP{
+			logger: zap.NewExample(),
+		}
 
 		err := m.UnmarshalCaddyfile(d)
 		if err != nil {
 			t.Fatalf("Test %d: failed while parsing: '%s'; got '%v'", i, test.rule, err)
 		}
+
+		m.buildCompleteSet()
+
 		var cidrs []*net.IPNet
 		for _, name := range test.presets {
-			if preset, ok := presets[name]; ok {
-				result, err := parseCidrs(i, preset)
-				if err != nil {
-					t.Fatal(err)
-				}
-				cidrs = append(cidrs, result...)
+			if preset, ok := presetRegistry[name]; ok {
+				cidrs = append(cidrs, preset.Ranges...)
 			} else {
 				t.Fatalf("Test %d: Specified preset missing: %s", i, name)
 			}
@@ -111,10 +121,11 @@ func TestCidrAndPresets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		cidrs = append(cidrs, result...)
 		for _, cidr := range cidrs {
 			found := false
-			for _, from := range m.From {
+			for _, from := range m.complete {
 				if net.IP.Equal(from.IP, cidr.IP) && bytes.Equal(from.Mask, cidr.Mask) {
 					found = true
 					break
@@ -137,4 +148,73 @@ func parseCidrs(i int, values []string) ([]*net.IPNet, error) {
 		cidrs = append(cidrs, cidr)
 	}
 	return cidrs, nil
+}
+
+func TestJson(t *testing.T) {
+	tester := caddytest.NewTester(t)
+
+	cfg := `{
+		"apps": {
+			"http": {
+				"servers": {
+					"srv0": {
+						"listen": [
+							":8080"
+						],
+						"routes": [
+							{
+								"handle": [
+									{
+										"handler": "realip",
+										"presets": ["cloudfront"],
+										"from": [{"IP":"127.0.0.1","Mask":"////AA=="}],
+										"header": "X-Forwarded-For",
+										"strict": true
+									},
+									{
+										"handler": "static_response",
+										"status_code": 200,
+										"body": "Hello from {http.request.remote}"
+									}
+								]
+							}
+						]
+					}
+				}
+			}
+		}
+	}
+	`
+
+	tester.InitServer(cfg, "json")
+
+	req, err := http.NewRequest("GET", "http://geo.caddy.localhost:8080", nil)
+	if err != nil {
+		t.Fatalf("unable to create request %s", err)
+	}
+
+	tests := []struct {
+		xForwardedFor string
+		expected      string
+	}{
+		{
+			// trust localhost (testing infrastructure forces the use of 127.0.0.1)
+			"202.36.75.151,127.0.0.1",
+			"202.36.75.151",
+		},
+		{
+			// trust cloudfront intermediate
+			"202.36.75.151,188.114.96.1,127.0.0.1",
+			"202.36.75.151",
+		},
+	}
+	for i, test := range tests {
+		req.Header.Add("X-Forwarded-For", test.xForwardedFor)
+		resp := tester.AssertResponseCode(req, 200)
+		data, _ := ioutil.ReadAll(resp.Body)
+		if !strings.Contains(string(data), test.expected) {
+			t.Logf("test %d expected: %s got: %s", i, test.expected, string(data))
+			t.Fail()
+		}
+	}
 }

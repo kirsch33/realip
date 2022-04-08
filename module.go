@@ -5,69 +5,153 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	"go.uber.org/zap"
 )
 
-type module struct {
-	From   []*net.IPNet
-	Header string
+var (
+	realPool = caddy.NewUsagePool()
+)
+
+type RealIP struct {
+
+	// Presets stores the presets that should be loaded
+	Presets []string `json:"presets"`
+
+	// From stores any manually included presets
+	From []*net.IPNet `json:"from"`
+
+	// Header to load an IP Address from typically X-Forwarded-For
+	Header string `json:"header"`
 
 	// MaxHops configures the maxiumum number of hops or IPs to be found in a forward header.
 	// It's purpose is to prevent abuse and/or DOS attacks from long forward-chains, since each one
 	// must be parsed and checked against a list of subnets.
 	// The default is 5, -1 to disable. If set to 0, any request with a forward header will be rejected
-	MaxHops int
-	Strict  bool
+	MaxHops int `json:"max_hops"`
+
+	// Will reject the request if a valid IP address can not be found
+	Strict bool `json:"strict"`
+
+	// How often the dynamic presets are reloaded
+	RefreshFrequency caddy.Duration `json:"refresh_frequency"`
+
+	// manages a global list of trusted IP ranges
+	state *state
+
+	// manages the complete ip set for this instance of real ip
+	complete []*net.IPNet
+
+	// is closed when this instance of real ip is unloaded via caddy cleanup
+	done chan bool
+
+	logger *zap.Logger
 }
 
-var presets = map[string][]string{
-	// from https://www.cloudflare.com/ips/
-	"cloudflare": {
-		"103.21.244.0/22",
-		"103.22.200.0/22",
-		"103.31.4.0/22",
-		"104.16.0.0/13",
-		"104.24.0.0/14",
-		"108.162.192.0/18",
-		"131.0.72.0/22",
-		"141.101.64.0/18",
-		"162.158.0.0/15",
-		"172.64.0.0/13",
-		"173.245.48.0/20",
-		"188.114.96.0/20",
-		"190.93.240.0/20",
-		"197.234.240.0/22",
-		"198.41.128.0/17",
-		"2400:cb00::/32",
-		"2606:4700::/32",
-		"2803:f800::/32",
-		"2405:b500::/32",
-		"2405:8100::/32",
-		"2a06:98c0::/29",
-		"2c0f:f248::/32",
-	},
+type CIDRUpdater func() ([]*net.IPNet, error)
+
+type CIDRSet struct {
+	Ranges []*net.IPNet
+	Update CIDRUpdater
 }
 
 func init() {
-	caddy.RegisterModule(module{})
+	caddy.RegisterModule(RealIP{})
 	httpcaddyfile.RegisterHandlerDirective("realip", parseCaddyfileHandler)
 }
 
-func (module) CaddyModule() caddy.ModuleInfo {
+func (RealIP) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID: "http.handlers.realip",
 		New: func() caddy.Module {
-			return new(module)
+			return new(RealIP)
 		},
 	}
 }
 
+func (m *RealIP) Provision(ctx caddy.Context) error {
+	m.logger = ctx.Logger(m)
+	m.done = make(chan bool, 1)
+
+	if m.RefreshFrequency == 0 {
+		m.RefreshFrequency = caddy.Duration(24 * time.Hour)
+	}
+
+	if m.MaxHops == 0 {
+		m.MaxHops = 5
+	}
+
+	tmp, _, err := realPool.LoadOrNew("realip.state", func() (caddy.Destructor, error) {
+		state := state{}
+		state.Start(time.Duration(m.RefreshFrequency), m.logger)
+		return &state, nil
+	})
+	if err != nil {
+		m.logger.Error("unable to load previous state", zap.Error(err))
+		return err
+	}
+
+	if state, ok := tmp.(*state); ok {
+		m.state = state
+	}
+
+	// monitor for changes the presets or if this instance of the plugin has been closed
+	go func() {
+
+		gs := m.state
+
+		for {
+			select {
+			case <-m.done:
+				m.logger.Debug("cidr refresh monitor closing")
+				return
+
+			case _, ok := <-gs.Refreshed:
+				if !ok {
+					// this only happens if state object is being removed
+					return
+				}
+				m.buildCompleteSet()
+			}
+		}
+	}()
+
+	return m.buildCompleteSet()
+}
+
+func (m *RealIP) Cleanup() error {
+	if m.done != nil {
+		close(m.done)
+	}
+	return nil
+}
+
+func (m *RealIP) buildCompleteSet() error {
+
+	set := make([]*net.IPNet, 0)
+
+	// append any manual entries
+	set = append(set, m.From...)
+
+	// append current preset ranges
+	for _, p := range m.Presets {
+		set = append(set, presetRegistry[p].Ranges...)
+	}
+
+	m.complete = set
+
+	m.logger.Debug("ip set rebuilt")
+
+	return nil
+}
+
 func parseCaddyfileHandler(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
-	var m module
+	var m RealIP
 	err := m.UnmarshalCaddyfile(h.Dispenser)
 	if err != nil {
 		return nil, err
@@ -75,12 +159,10 @@ func parseCaddyfileHandler(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler,
 	return m, err
 }
 
-func addIpRanges(m *module, d *caddyfile.Dispenser, ranges []string) error {
+func addIpRanges(m *RealIP, d *caddyfile.Dispenser, ranges []string) error {
 	for _, v := range ranges {
-		if preset, ok := presets[v]; ok {
-			if err := addIpRanges(m, d, preset); err != nil {
-				return err
-			}
+		if _, ok := presetRegistry[v]; ok {
+			m.Presets = append(m.Presets, v)
 			continue
 		}
 		_, cidr, err := net.ParseCIDR(v)
@@ -117,12 +199,12 @@ func parseBoolArg(d *caddyfile.Dispenser, out *bool) error {
 	return err
 }
 
-func (m *module) validSource(addr string) bool {
+func (m *RealIP) validSource(addr string) bool {
 	ip := net.ParseIP(addr)
 	if ip == nil {
 		return false
 	}
-	for _, from := range m.From {
+	for _, from := range m.complete {
 		if from.Contains(ip) {
 			return true
 		}
@@ -130,7 +212,15 @@ func (m *module) validSource(addr string) bool {
 	return false
 }
 
-func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler caddyhttp.Handler) error {
+func (m RealIP) ServeHTTP(w http.ResponseWriter, req *http.Request, handler caddyhttp.Handler) error {
+
+	m.logger.Info("checking the header",
+		zap.String("header", m.Header),
+		zap.String("remoteaddr", req.RemoteAddr),
+		zap.Int("maxhops", m.MaxHops),
+	)
+
+	// check the direct upstream server
 	host, port, err := net.SplitHostPort(req.RemoteAddr)
 	if err != nil || !m.validSource(host) {
 		if m.Strict {
@@ -145,15 +235,18 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 		return handler.ServeHTTP(w, req)
 	}
 
+	// check the forwarded for header
 	if hVal := req.Header.Get(m.Header); hVal != "" {
 		parts := strings.Split(hVal, ",")
 		for i, part := range parts {
 			parts[i] = strings.TrimSpace(part)
 		}
+
 		if m.MaxHops != -1 && len(parts) > m.MaxHops {
 			return caddyhttp.Error(http.StatusForbidden, err)
 		}
 		ip := net.ParseIP(parts[len(parts)-1])
+
 		if ip == nil {
 			if m.Strict {
 				return caddyhttp.Error(http.StatusForbidden, err)
@@ -161,12 +254,14 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 			return handler.ServeHTTP(w, req)
 		}
 		req.RemoteAddr = net.JoinHostPort(parts[len(parts)-1], port)
+
 		for i := len(parts) - 1; i >= 0; i-- {
 			req.RemoteAddr = net.JoinHostPort(parts[i], port)
 			if i > 0 && !m.validSource(parts[i]) {
 				if m.Strict {
 					return caddyhttp.Error(http.StatusForbidden, err)
 				}
+
 				return handler.ServeHTTP(w, req)
 			}
 		}
@@ -174,7 +269,7 @@ func (m module) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 	return handler.ServeHTTP(w, req)
 }
 
-func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+func (m *RealIP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.NextArg()
 
 	for d.NextBlock(0) {
@@ -199,7 +294,17 @@ func (m *module) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
+func MustParseCIDR(cidr string) *net.IPNet {
+	_, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		panic(err)
+	}
+	return ipnet
+}
+
 var (
-	_ caddyhttp.MiddlewareHandler = (*module)(nil)
-	_ caddyfile.Unmarshaler       = (*module)(nil)
+	_ caddyhttp.MiddlewareHandler = (*RealIP)(nil)
+	_ caddy.Provisioner           = (*RealIP)(nil)
+	_ caddy.CleanerUpper          = (*RealIP)(nil)
+	_ caddyfile.Unmarshaler       = (*RealIP)(nil)
 )
