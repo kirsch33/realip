@@ -1,4 +1,4 @@
-module github.com/kirsch33/realip/v2
+module github.com/kirsch33/realip
 
 go 1.16
 
