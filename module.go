@@ -217,6 +217,7 @@ func (m RealIP) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 	m.logger.Info("checking the header",
 		zap.String("header", m.Header),
 		zap.String("remoteaddr", req.RemoteAddr),
+		zap.String("x-forwarded-for", req.Header.Get(m.Header)),
 		zap.Int("maxhops", m.MaxHops),
 	)
 
@@ -239,6 +240,7 @@ func (m RealIP) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 
 	// check the forwarded for header
 	if hVal := req.Header.Get(m.Header); hVal != "" {
+		m.logger.Info("not blank")
 		parts := strings.Split(hVal, ",")
 		for i, part := range parts {
 			parts[i] = strings.TrimSpace(part)
@@ -260,6 +262,9 @@ func (m RealIP) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 
 		for i := len(parts) - 1; i >= 0; i-- {
 			req.RemoteAddr = net.JoinHostPort(parts[i], port)
+				m.logger.Info("setting remoteaddr",
+					zap.String("header", net.JoinHostPort(parts[i], port)),
+				)
 			if i > 0 && !m.validSource(parts[i]) {
 				if m.Strict {
 					return caddyhttp.Error(http.StatusForbidden, err)
