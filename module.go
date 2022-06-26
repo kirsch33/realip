@@ -226,12 +226,14 @@ func (m RealIP) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 		if m.Strict {
 			return caddyhttp.Error(http.StatusForbidden, err)
 		}
+		m.logger.Info("no good - return 1")
 		return handler.ServeHTTP(w, req)
 	}
 	if !m.validSource(host) {
 		if m.Strict {
 			return caddyhttp.Error(http.StatusForbidden, err)
 		}
+		m.logger.Info("no good - return 2")
 		return handler.ServeHTTP(w, req)
 	}
 
@@ -251,6 +253,7 @@ func (m RealIP) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 			if m.Strict {
 				return caddyhttp.Error(http.StatusForbidden, err)
 			}
+			m.logger.Info("no good - return 3")
 			return handler.ServeHTTP(w, req)
 		}
 		req.RemoteAddr = net.JoinHostPort(parts[len(parts)-1], port)
@@ -261,11 +264,12 @@ func (m RealIP) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 				if m.Strict {
 					return caddyhttp.Error(http.StatusForbidden, err)
 				}
-
+				m.logger.Info("great success")
 				return handler.ServeHTTP(w, req)
 			}
 		}
 	}
+	m.logger.Info("no good - return 4")
 	return handler.ServeHTTP(w, req)
 }
 
