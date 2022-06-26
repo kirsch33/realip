@@ -227,20 +227,19 @@ func (m RealIP) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 		if m.Strict {
 			return caddyhttp.Error(http.StatusForbidden, err)
 		}
-		m.logger.Info("no good - return 1")
+		m.logger.Info("return 1")
 		return handler.ServeHTTP(w, req)
 	}
 	if !m.validSource(host) {
 		if m.Strict {
 			return caddyhttp.Error(http.StatusForbidden, err)
 		}
-		m.logger.Info("no good - return 2")
+		m.logger.Info("return 2")
 		return handler.ServeHTTP(w, req)
 	}
 
 	// check the forwarded for header
 	if hVal := req.Header.Get(m.Header); hVal != "" {
-		m.logger.Info("not blank")
 		parts := strings.Split(hVal, ",")
 		for i, part := range parts {
 			parts[i] = strings.TrimSpace(part)
@@ -255,26 +254,33 @@ func (m RealIP) ServeHTTP(w http.ResponseWriter, req *http.Request, handler cadd
 			if m.Strict {
 				return caddyhttp.Error(http.StatusForbidden, err)
 			}
-			m.logger.Info("no good - return 3")
+			m.logger.Info("return 3")
 			return handler.ServeHTTP(w, req)
 		}
 		req.RemoteAddr = net.JoinHostPort(parts[len(parts)-1], port)
-
+		m.logger.Info("remoteaddr at location 1",
+			zap.String("remoteaddr", req.RemoteAddr),
+			      zap.Int("parts", len(parts)),
+			)
+		
 		for i := len(parts) - 1; i >= 0; i-- {
 			req.RemoteAddr = net.JoinHostPort(parts[i], port)
-				m.logger.Info("setting remoteaddr",
-					zap.String("header", net.JoinHostPort(parts[i], port)),
-				)
+				m.logger.Info("remoteaddr at location 2",
+					zap.String("remoteaddr", req.RemoteAddr),
+					 zap.Int("i", i),
+					)
 			if i > 0 && !m.validSource(parts[i]) {
 				if m.Strict {
 					return caddyhttp.Error(http.StatusForbidden, err)
 				}
-				m.logger.Info("great success")
+				m.logger.Info("return 4")
 				return handler.ServeHTTP(w, req)
 			}
 		}
 	}
-	m.logger.Info("no good - return 4")
+	m.logger.Info("remoteaddr at end",
+			zap.String("remoteaddr", req.RemoteAddr),
+			)
 	return handler.ServeHTTP(w, req)
 }
 
