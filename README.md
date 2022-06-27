@@ -4,6 +4,15 @@ This repo is a port of captncraig's "realip" module to Caddy v2. See original pl
 
 https://github.com/captncraig/caddy-realip
 
+## **IMPORTANT**
+
+Effective as of Caddy 2.5.x, this plugin no longer works. See the following thread for additional information on the specifics:
+https://caddy.community/t/trouble-with-logging-changes/16408
+
+If you want to continue using this plugin, do not upgrade your Caddy instance beyond 2.4.6.
+
+It is currently unclear if the plugin will be upgraded to be compatible with Caddy moving forward. Feel free to reach out if you have ideas or suggestions on doing so.
+
 ## Syntax
 ```Caddyfile
 
