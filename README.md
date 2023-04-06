@@ -4,17 +4,18 @@ This repo is a port of captncraig's "realip" module to Caddy v2. See original pl
 
 https://github.com/captncraig/caddy-realip
 
+
+
+## **UPDATE 04/06/2023** 
+Upon upcoming release of Caddy 2.7 this plugin should no longer be required. See discussion at [this link.](https://github.com/kirsch33/realip/issues/14)
+
 ## **IMPORTANT**
 
 Effective as of Caddy 2.5.x, this plugin no longer works. See the following thread for additional information on the specifics:
 https://caddy.community/t/trouble-with-logging-changes/16408
 
-
 If you want to continue using this plugin, do not upgrade your Caddy instance beyond 2.4.6.
 
-**Update as of April 2023, upon release of Caddy 2.7 this plugin should no longer be required:
-
-https://github.com/kirsch33/realip/issues/14
 
 
 ## Syntax
